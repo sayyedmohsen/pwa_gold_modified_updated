@@ -1,74 +1,66 @@
 const apiKey = "8eca64515f2a4e58a6ee1152d5fc384b";
 
-function getLastTradingDate() {
-  const now = new Date();
+// دریافت تاریخ به‌صورت YYYY-MM-DD
+function getUTCDateNDaysAgo(n) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - n);
+  return date.toISOString().split("T")[0];
+}
 
-  // اگر هنوز داده روز جاری کامل نشده (قبل از ساعت 23:59 UTC)، روز قبل را انتخاب کن
-  if (now.getUTCHours() < 23) {
-    now.setUTCDate(now.getUTCDate() - 1);
+// بررسی تا 5 روز گذشته برای یافتن داده معتبر
+async function fetchLatestAvailableData(maxDays = 5) {
+  for (let i = 1; i <= maxDays; i++) {
+    const date = getUTCDateNDaysAgo(i);
+    const url = `https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1day&start_date=${date}&end_date=${date}&apikey=${apiKey}`;
+
+    try {
+      const response = await fetch(url);
+      const result = await response.json();
+
+      if (result.values && result.values.length > 0) {
+        return { data: result.values[0], date };
+      }
+    } catch (err) {
+      console.warn(`تلاش برای تاریخ ${date} با خطا مواجه شد`);
+    }
   }
 
-  let day = now.getUTCDay();
-
-  // آخر هفته‌ها بازار تعطیل است، تاریخ را به آخرین روز معاملاتی منتقل کن
-  if (day === 0) { // یکشنبه
-    now.setUTCDate(now.getUTCDate() - 2); // جمعه
-  } else if (day === 6) { // شنبه
-    now.setUTCDate(now.getUTCDate() - 1); // جمعه
-  }
-
-  return now.toISOString().split("T")[0];
+  throw new Error("داده‌ای در ۵ روز گذشته یافت نشد.");
 }
 
 async function fetchGoldData() {
-  const date = getLastTradingDate();
-
-  const url = `https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1day&start_date=${date}&end_date=${date}&apikey=${apiKey}`;
+  document.getElementById("results").innerHTML = "در حال بارگذاری اطلاعات...";
 
   try {
-    const response = await fetch(url);
-    const result = await response.json();
+    const { data, date } = await fetchLatestAvailableData();
 
-    if (!result.values || result.values.length === 0) {
-      throw new Error("داده‌ای برای این تاریخ موجود نیست.");
-    }
-
-    const data = result.values[0];
     const high = parseFloat(data.high);
     const low = parseFloat(data.low);
     const close = parseFloat(data.close);
     const open = parseFloat(data.open);
 
-    calculateModifiedPivots(open, high, low, close, date);
+    const pp = (high + low + close + open) / 4;
+    const r1 = (2 * pp) - low;
+    const s1 = (2 * pp) - high;
+    const r2 = pp + (high - low);
+    const s2 = pp - (high - low);
+    const r3 = high + 2 * (pp - low);
+    const s3 = low - 2 * (high - pp);
+
+    document.getElementById("results").innerHTML = `
+      <h2>نقاط پیوت مودیفای (${date})</h2>
+      <p>PP: ${pp.toFixed(2)}</p>
+      <p>R1: ${r1.toFixed(2)}</p>
+      <p>S1: ${s1.toFixed(2)}</p>
+      <p>R2: ${r2.toFixed(2)}</p>
+      <p>S2: ${s2.toFixed(2)}</p>
+      <p>R3: ${r3.toFixed(2)}</p>
+      <p>S3: ${s3.toFixed(2)}</p>
+    `;
   } catch (error) {
-    console.error("خطا در API:", error);
-    document.getElementById("results").innerHTML =
-      "<p style='color:red;'>خطا در دریافت اطلاعات بازار طلا.</p>";
+    console.error("خطا:", error);
+    document.getElementById("results").innerHTML = `<p style="color:red;">خطا در دریافت اطلاعات بازار طلا: ${error.message}</p>`;
   }
-}
-
-function calculateModifiedPivots(open, high, low, close, date) {
-  const pivot = (high + low + close + open) / 4;
-  const r1 = (2 * pivot) - low;
-  const s1 = (2 * pivot) - high;
-  const r2 = pivot + (high - low);
-  const s2 = pivot - (high - low);
-  const r3 = high + 2 * (pivot - low);
-  const s3 = low - 2 * (high - pivot);
-
-  document.getElementById("results").innerHTML = `
-    <h2>نقاط پیوت مودیفای برای تاریخ ${date}</h2>
-    <table style="border-collapse: collapse; width: 100%; text-align: center;">
-      <tr style="background-color:#f0f0f0;"><th>نقطه</th><th>قیمت</th></tr>
-      <tr><td style="color:green;">R3</td><td>${r3.toFixed(2)}</td></tr>
-      <tr><td>R2</td><td>${r2.toFixed(2)}</td></tr>
-      <tr><td>R1</td><td>${r1.toFixed(2)}</td></tr>
-      <tr style="background-color:#e8e8e8;"><td><strong>Pivot</strong></td><td><strong>${pivot.toFixed(2)}</strong></td></tr>
-      <tr><td>S1</td><td>${s1.toFixed(2)}</td></tr>
-      <tr><td>S2</td><td>${s2.toFixed(2)}</td></tr>
-      <tr><td style="color:red;">S3</td><td>${s3.toFixed(2)}</td></tr>
-    </table>
-  `;
 }
 
 window.onload = fetchGoldData;
